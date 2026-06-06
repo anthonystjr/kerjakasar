@@ -18,6 +18,7 @@ const STATUS_LABEL = {
 
 export default function DashboardPage() {
   const [user, setUser]                     = useState(null)
+  const [profile, setProfile]               = useState(null)
   const [myJobs, setMyJobs]                 = useState([])
   const [myApplications, setMyApplications] = useState([])
   const [applicantsMap, setApplicantsMap]   = useState({})
@@ -32,6 +33,14 @@ export default function DashboardPage() {
       if (!session) { window.location.href = '/login'; return }
       setUser(session.user)
 
+      // Fix: fetch profil dari tabel users untuk dapat foto_url terbaru
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('id, nama, foto_url, email')
+        .eq('id', session.user.id)
+        .single()
+      setProfile(profileData)
+
       // Fetch lowongan yang dipost
       const { data: jobs } = await supabase
         .from('jobs')
@@ -40,7 +49,7 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false })
       setMyJobs(jobs ?? [])
 
-      // Fetch semua pelamar — FIX: foto → foto_url
+      // Fetch semua pelamar
       if (jobs?.length) {
         const jobIds = jobs.map(j => j.id)
         const { data: allApps, error: appsError } = await supabase
@@ -102,6 +111,10 @@ export default function DashboardPage() {
     }
   }
 
+  // Fix: ambil foto & nama dari profile (tabel users), fallback ke Google metadata
+  const displayPhoto = profile?.foto_url || user?.user_metadata?.avatar_url
+  const displayName  = profile?.nama || user?.user_metadata?.full_name || user?.email
+
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-stone-50">
       <p className="text-stone-400">Memuat dashboard...</p>
@@ -116,17 +129,19 @@ export default function DashboardPage() {
         {/* Header profil */}
         <div className="bg-white border border-stone-200 rounded-xl p-6 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            {user?.user_metadata?.avatar_url ? (
-              <img src={user.user_metadata.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover" />
+            {displayPhoto ? (
+              <img
+                src={`${displayPhoto}?t=${profile?.foto_url ? 'db' : 'google'}`}
+                alt=""
+                className="w-12 h-12 rounded-full object-cover"
+              />
             ) : (
               <div className="w-12 h-12 rounded-full bg-orange-100 text-orange-500 flex items-center justify-center text-xl font-black">
-                {user?.user_metadata?.full_name?.[0] ?? '?'}
+                {displayName?.[0]?.toUpperCase() ?? '?'}
               </div>
             )}
             <div>
-              <h1 className="text-xl font-black text-stone-900">
-                {user?.user_metadata?.full_name ?? user?.email}
-              </h1>
+              <h1 className="text-xl font-black text-stone-900">{displayName}</h1>
               <p className="text-stone-400 text-xs">{user?.email}</p>
             </div>
           </div>
@@ -242,7 +257,6 @@ export default function DashboardPage() {
                               {applicants.map(app => (
                                 <div key={app.id} className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-stone-50 rounded-xl">
 
-                                  {/* Avatar — FIX: foto → foto_url */}
                                   <div className="shrink-0">
                                     {app.talent?.foto_url ? (
                                       <img src={app.talent.foto_url} alt="" className="w-10 h-10 rounded-full object-cover" />
@@ -253,7 +267,6 @@ export default function DashboardPage() {
                                     )}
                                   </div>
 
-                                  {/* Info pelamar */}
                                   <div className="flex-1 min-w-0">
                                     <p className="font-bold text-stone-900 text-sm">{app.talent?.nama ?? 'Talent'}</p>
                                     <p className="text-stone-500 text-xs italic mt-0.5 line-clamp-2">"{app.pesan}"</p>
@@ -268,7 +281,6 @@ export default function DashboardPage() {
                                     )}
                                   </div>
 
-                                  {/* Aksi */}
                                   <div className="flex flex-col items-end gap-2 shrink-0">
                                     <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${STATUS_COLOR[app.status] ?? STATUS_COLOR.pending}`}>
                                       {STATUS_LABEL[app.status] ?? app.status}
