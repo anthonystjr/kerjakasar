@@ -40,7 +40,6 @@ export default function ProfilePage() {
           foto_url: profile.foto_url ?? session.user.user_metadata?.avatar_url ?? '',
         })
       } else {
-        // Profil belum ada, isi dari Google metadata
         setForm((prev) => ({
           ...prev,
           nama: session.user.user_metadata?.full_name ?? '',
@@ -60,7 +59,7 @@ export default function ProfilePage() {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const maxSize = 2 * 1024 * 1024 // 2MB
+    const maxSize = 2 * 1024 * 1024
     if (file.size > maxSize) {
       setError('Ukuran foto maksimal 2MB')
       return
@@ -83,7 +82,9 @@ export default function ProfilePage() {
       .from('avatars')
       .getPublicUrl(`${session.user.id}/avatar`)
 
-    setForm((prev) => ({ ...prev, foto_url: publicUrl }))
+    // Fix: tambah timestamp supaya browser tidak pakai cache lama
+    const urlWithBust = `${publicUrl}?t=${Date.now()}`
+    setForm((prev) => ({ ...prev, foto_url: urlWithBust }))
     setUploadingPhoto(false)
   }
 
@@ -110,7 +111,8 @@ export default function ProfilePage() {
       bio: form.bio.trim() || null,
       skills: skillsArray.length > 0 ? skillsArray : null,
       wa_number: form.wa_number.trim() || null,
-      foto_url: form.foto_url || null,
+      // Fix: simpan URL tanpa timestamp ke database
+      foto_url: form.foto_url.split('?')[0] || null,
     })
 
     setSaving(false)
@@ -181,7 +183,6 @@ export default function ProfilePage() {
           <div className="bg-white border border-stone-200 rounded-xl p-6 flex flex-col gap-5">
             <h2 className="font-bold text-stone-900">Informasi Dasar</h2>
 
-            {/* Nama */}
             <div>
               <label className="block text-sm font-semibold text-stone-700 mb-1.5">
                 Nama Lengkap <span className="text-red-500">*</span>
@@ -196,7 +197,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Bio */}
             <div>
               <label className="block text-sm font-semibold text-stone-700 mb-1.5">
                 Bio <span className="text-stone-400 font-normal">— opsional</span>
@@ -211,7 +211,6 @@ export default function ProfilePage() {
               />
             </div>
 
-            {/* Skills */}
             <div>
               <label className="block text-sm font-semibold text-stone-700 mb-1.5">
                 Keahlian <span className="text-stone-400 font-normal">— opsional</span>
@@ -227,7 +226,6 @@ export default function ProfilePage() {
               <p className="text-stone-400 text-xs mt-1.5">Pisahkan setiap keahlian dengan koma</p>
             </div>
 
-            {/* WhatsApp */}
             <div>
               <label className="block text-sm font-semibold text-stone-700 mb-1.5">
                 Nomor WhatsApp <span className="text-stone-400 font-normal">— opsional</span>
@@ -255,7 +253,6 @@ export default function ProfilePage() {
             <p className="text-sm font-medium text-stone-700">{session?.user?.email}</p>
           </div>
 
-          {/* Error / Success */}
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 text-sm px-4 py-3 rounded-lg">
               {error}
@@ -267,7 +264,6 @@ export default function ProfilePage() {
             </div>
           )}
 
-          {/* Save */}
           <button
             type="submit"
             disabled={saving || uploadingPhoto}
