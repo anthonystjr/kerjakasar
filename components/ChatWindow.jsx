@@ -15,10 +15,8 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         .from('messages')
         .select('*')
         .eq('job_id', jobId)
-        .or(
-          `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}),` +
-          `and(sender_id.eq.${otherUser.id},receiver_id.eq.${currentUser.id})`
-        )
+        .or(`sender_id.eq.${currentUser.id},sender_id.eq.${otherUser.id}`)
+        .or(`receiver_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}`)
         .order('created_at', { ascending: true })
       setMessages(data ?? [])
     }
@@ -121,7 +119,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
                 }`}
               >
                 {msg.content}
-                <p className="text-xs mt-1 text-stone-400">
+                <p className="text-xs mt-1 opacity-60">
                   {new Date(msg.created_at).toLocaleTimeString('id-ID', {
                     hour: '2-digit',
                     minute: '2-digit',
