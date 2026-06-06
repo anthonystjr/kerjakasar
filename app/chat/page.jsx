@@ -4,7 +4,7 @@ import Navbar from '@/components/Navbar'
 import ChatWindow from '@/components/ChatWindow'
 
 export default async function ChatPage({ searchParams }) {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -20,7 +20,6 @@ export default async function ChatPage({ searchParams }) {
     .eq('id', user.id)
     .single()
 
-  // jobId bisa 'direct' (chat langsung ke profil) atau uuid job
   let job = null
   if (jobId && jobId !== 'direct') {
     const { data } = await supabase
