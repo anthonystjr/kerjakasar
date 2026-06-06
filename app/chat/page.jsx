@@ -5,12 +5,13 @@ import ChatWindow from '@/components/ChatWindow'
 
 export default async function ChatPage({ searchParams }) {
   const supabase = await createClient()
-
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const jobId = searchParams.jobId
-  const otherUserId = searchParams.withUser
+  // Fix 3: await searchParams
+  const params = await searchParams
+  const jobId = params.jobId
+  const otherUserId = params.withUser
 
   if (!otherUserId) redirect('/dashboard')
 
@@ -19,6 +20,9 @@ export default async function ChatPage({ searchParams }) {
     .select('id, nama, foto_url')
     .eq('id', user.id)
     .single()
+
+  // Fix 2: guard jika profil tidak ditemukan
+  if (!currentProfile) redirect('/dashboard')
 
   let job = null
   if (jobId && jobId !== 'direct') {
