@@ -10,7 +10,7 @@ export default async function ChatPage({ searchParams }) {
   if (!user) redirect('/login')
 
   const jobId = searchParams.jobId
-  const otherUserId = searchParams.with
+  const otherUserId = searchParams.withUser
 
   if (!otherUserId) redirect('/dashboard')
 

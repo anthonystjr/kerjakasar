@@ -291,7 +291,7 @@ export default function DashboardPage() {
                                         </>
                                       )}
                                       <Link
-                                        href={`/chat?jobId=${job.id}&with=${app.talent_id}`}
+                                        href={`/chat?jobId=${job.id}&withUser=${app.talent_id}`}
                                         className="px-3 py-1 text-xs bg-indigo-100 text-indigo-600 rounded-lg font-semibold hover:bg-indigo-200 transition-colors"
                                       >
                                         💬 Chat
@@ -358,7 +358,7 @@ export default function DashboardPage() {
                       </Link>
                       {app.jobs?.user_id && (
                         <Link
-                          href={`/chat?jobId=${app.job_id}&with=${app.jobs.user_id}`}
+                          href={`/chat?jobId=${app.job_id}&withUser=${app.jobs.user_id}`}
                           className="px-3 py-1.5 text-xs bg-indigo-100 text-indigo-600 rounded-lg font-semibold hover:bg-indigo-200 transition-colors"
                         >
                           💬 Chat Poster
