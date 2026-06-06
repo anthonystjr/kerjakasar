@@ -17,15 +17,13 @@ const STATUS_LABEL = {
 }
 
 export default function DashboardPage() {
-  const [user, setUser]                   = useState(null)
-  const [myJobs, setMyJobs]               = useState([])
+  const [user, setUser]                     = useState(null)
+  const [myJobs, setMyJobs]                 = useState([])
   const [myApplications, setMyApplications] = useState([])
-  const [applicantsMap, setApplicantsMap] = useState({})  // job_id -> pelamar[]
-  const [expandedJob, setExpandedJob]     = useState(null)
-  const [loading, setLoading]             = useState(true)
-  const [tab, setTab]                     = useState('client')
-
-  // Stats
+  const [applicantsMap, setApplicantsMap]   = useState({})
+  const [expandedJob, setExpandedJob]       = useState(null)
+  const [loading, setLoading]               = useState(true)
+  const [tab, setTab]                       = useState('client')
   const [stats, setStats] = useState({ totalJobs: 0, totalApplicants: 0, totalApplied: 0, totalAccepted: 0 })
 
   useEffect(() => {
@@ -42,14 +40,16 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false })
       setMyJobs(jobs ?? [])
 
-      // Fetch semua pelamar untuk lowongan milik user ini
+      // Fetch semua pelamar — FIX: foto → foto_url
       if (jobs?.length) {
         const jobIds = jobs.map(j => j.id)
-        const { data: allApps } = await supabase
+        const { data: allApps, error: appsError } = await supabase
           .from('applications')
-          .select('*, talent:talent_id(id, nama, foto, bio, skills)')
+          .select('*, talent:talent_id(id, nama, foto_url, bio, skills)')
           .in('job_id', jobIds)
           .order('created_at', { ascending: false })
+
+        if (appsError) console.error('Error fetch applicants:', appsError)
 
         const map = {}
         for (const app of allApps ?? []) {
@@ -57,9 +57,9 @@ export default function DashboardPage() {
           map[app.job_id].push(app)
         }
         setApplicantsMap(map)
-
-        const totalApplicants = (allApps ?? []).length
-        setStats(prev => ({ ...prev, totalJobs: jobs.length, totalApplicants }))
+        setStats(prev => ({ ...prev, totalJobs: jobs.length, totalApplicants: (allApps ?? []).length }))
+      } else {
+        setStats(prev => ({ ...prev, totalJobs: 0, totalApplicants: 0 }))
       }
 
       // Fetch lamaran yang dikirim sebagai talent
@@ -142,10 +142,10 @@ export default function DashboardPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-          <StatCard label="Lowongan Dipasang" value={stats.totalJobs}      color="text-indigo-600" />
-          <StatCard label="Total Pelamar"      value={stats.totalApplicants} color="text-cyan-600"   />
-          <StatCard label="Lamaran Dikirim"    value={stats.totalApplied}   color="text-emerald-600"/>
-          <StatCard label="Lamaran Diterima"   value={stats.totalAccepted}  color="text-orange-500" />
+          <StatCard label="Lowongan Dipasang" value={stats.totalJobs}        color="text-indigo-600"  />
+          <StatCard label="Total Pelamar"      value={stats.totalApplicants}  color="text-cyan-600"    />
+          <StatCard label="Lamaran Dikirim"    value={stats.totalApplied}     color="text-emerald-600" />
+          <StatCard label="Lamaran Diterima"   value={stats.totalAccepted}    color="text-orange-500"  />
         </div>
 
         {/* Tabs */}
@@ -196,7 +196,6 @@ export default function DashboardPage() {
                   return (
                     <div key={job.id} className="bg-white border border-stone-200 rounded-xl overflow-hidden">
 
-                      {/* Baris utama job */}
                       <div
                         className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-stone-50 transition-colors"
                         onClick={() => setExpandedJob(isExpanded ? null : job.id)}
@@ -243,10 +242,10 @@ export default function DashboardPage() {
                               {applicants.map(app => (
                                 <div key={app.id} className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-stone-50 rounded-xl">
 
-                                  {/* Avatar */}
+                                  {/* Avatar — FIX: foto → foto_url */}
                                   <div className="shrink-0">
-                                    {app.talent?.foto ? (
-                                      <img src={app.talent.foto} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                    {app.talent?.foto_url ? (
+                                      <img src={app.talent.foto_url} alt="" className="w-10 h-10 rounded-full object-cover" />
                                     ) : (
                                       <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-500 flex items-center justify-center font-black text-base">
                                         {app.talent?.nama?.[0]?.toUpperCase() ?? '?'}
