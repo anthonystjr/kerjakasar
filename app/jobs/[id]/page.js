@@ -22,7 +22,6 @@ export default function JobDetailPage() {
 
   useEffect(() => {
     async function load() {
-      // Ambil session aktif
       const { data: { session } } = await supabase.auth.getSession()
       setSession(session)
 
@@ -35,7 +34,6 @@ export default function JobDetailPage() {
       if (!jobData) { router.push('/jobs'); return }
       setJob(jobData)
 
-      // Fix: pakai foto_url
       const { data: posterData } = await supabase
         .from('users')
         .select('id, nama, foto_url, bio')
@@ -44,12 +42,13 @@ export default function JobDetailPage() {
       setPoster(posterData)
 
       if (session?.user) {
+        // Fix 1: pakai maybeSingle()
         const { data: existingApp } = await supabase
           .from('applications')
           .select('id')
           .eq('job_id', id)
           .eq('talent_id', session.user.id)
-          .single()
+          .maybeSingle()
         if (existingApp) setSudahLamar(true)
       }
 
@@ -58,19 +57,18 @@ export default function JobDetailPage() {
 
     load()
 
-    // Fix utama: listen perubahan auth state
-    // supaya tombol update setelah user login/logout
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
         setSession(newSession)
 
         if (newSession?.user && id) {
+          // Fix 2: pakai maybeSingle()
           const { data: existingApp } = await supabase
             .from('applications')
             .select('id')
             .eq('job_id', id)
             .eq('talent_id', newSession.user.id)
-            .single()
+            .maybeSingle()
           setSudahLamar(!!existingApp)
         }
       }
@@ -254,9 +252,9 @@ export default function JobDetailPage() {
                   )}
                   {poster && (
                     <button
-  onClick={() => router.push(`/chat?jobId=${job.id}&withUser=${poster.id}`)}
-  style={s.btnChat}
->
+                      onClick={() => router.push(`/chat?jobId=${job.id}&withUser=${poster.id}`)}
+                      style={s.btnChat}
+                    >
                       💬 Chat dengan Poster
                     </button>
                   )}
