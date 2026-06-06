@@ -5,23 +5,28 @@ import { supabase } from '@/lib/supabase'
 import Navbar from '@/components/Navbar'
 
 const STATUS_COLOR = {
-  pending: 'bg-yellow-100 text-yellow-700',
+  pending:  'bg-yellow-100 text-yellow-700',
   accepted: 'bg-green-100 text-green-700',
   rejected: 'bg-red-100 text-red-700',
 }
 
 const STATUS_LABEL = {
-  pending: 'Menunggu',
+  pending:  'Menunggu',
   accepted: 'Diterima',
   rejected: 'Ditolak',
 }
 
 export default function DashboardPage() {
-  const [user, setUser] = useState(null)
-  const [myJobs, setMyJobs] = useState([])
+  const [user, setUser]                   = useState(null)
+  const [myJobs, setMyJobs]               = useState([])
   const [myApplications, setMyApplications] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState('client')
+  const [applicantsMap, setApplicantsMap] = useState({})  // job_id -> pelamar[]
+  const [expandedJob, setExpandedJob]     = useState(null)
+  const [loading, setLoading]             = useState(true)
+  const [tab, setTab]                     = useState('client')
+
+  // Stats
+  const [stats, setStats] = useState({ totalJobs: 0, totalApplicants: 0, totalApplied: 0, totalAccepted: 0 })
 
   useEffect(() => {
     const init = async () => {
@@ -37,13 +42,36 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false })
       setMyJobs(jobs ?? [])
 
-      // Fetch lamaran yang dikirim
+      // Fetch semua pelamar untuk lowongan milik user ini
+      if (jobs?.length) {
+        const jobIds = jobs.map(j => j.id)
+        const { data: allApps } = await supabase
+          .from('applications')
+          .select('*, talent:talent_id(id, nama, foto, bio, skills)')
+          .in('job_id', jobIds)
+          .order('created_at', { ascending: false })
+
+        const map = {}
+        for (const app of allApps ?? []) {
+          if (!map[app.job_id]) map[app.job_id] = []
+          map[app.job_id].push(app)
+        }
+        setApplicantsMap(map)
+
+        const totalApplicants = (allApps ?? []).length
+        setStats(prev => ({ ...prev, totalJobs: jobs.length, totalApplicants }))
+      }
+
+      // Fetch lamaran yang dikirim sebagai talent
       const { data: apps } = await supabase
         .from('applications')
-        .select('*, jobs(judul, lokasi, kategori)')
+        .select('*, jobs(id, judul, lokasi, kategori, user_id)')
         .eq('talent_id', session.user.id)
         .order('created_at', { ascending: false })
       setMyApplications(apps ?? [])
+
+      const accepted = (apps ?? []).filter(a => a.status === 'accepted').length
+      setStats(prev => ({ ...prev, totalApplied: (apps ?? []).length, totalAccepted: accepted }))
 
       setLoading(false)
     }
@@ -57,7 +85,21 @@ export default function DashboardPage() {
 
   const handleCloseJob = async (jobId) => {
     await supabase.from('jobs').update({ status: 'closed' }).eq('id', jobId)
-    setMyJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, status: 'closed' } : j))
+    setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'closed' } : j))
+  }
+
+  const handleUpdateStatus = async (appId, jobId, status) => {
+    const { error } = await supabase
+      .from('applications')
+      .update({ status })
+      .eq('id', appId)
+
+    if (!error) {
+      setApplicantsMap(prev => ({
+        ...prev,
+        [jobId]: prev[jobId].map(a => a.id === appId ? { ...a, status } : a),
+      }))
+    }
   }
 
   if (loading) return (
@@ -71,7 +113,7 @@ export default function DashboardPage() {
       <Navbar />
       <div className="max-w-4xl mx-auto px-4 py-10">
 
-        {/* Header */}
+        {/* Header profil */}
         <div className="bg-white border border-stone-200 rounded-xl p-6 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             {user?.user_metadata?.avatar_url ? (
@@ -89,19 +131,21 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Link
-              href="/profile"
-              className="px-4 py-2 text-sm border border-stone-200 text-stone-600 rounded-lg hover:bg-stone-50 transition-colors font-medium"
-            >
+            <Link href="/profile" className="px-4 py-2 text-sm border border-stone-200 text-stone-600 rounded-lg hover:bg-stone-50 transition-colors font-medium">
               Edit Profil
             </Link>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-sm bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors cursor-pointer font-medium"
-            >
+            <button onClick={handleLogout} className="px-4 py-2 text-sm bg-stone-900 text-white rounded-lg hover:bg-stone-700 transition-colors cursor-pointer font-medium">
               Logout
             </button>
           </div>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <StatCard label="Lowongan Dipasang" value={stats.totalJobs}      color="text-indigo-600" />
+          <StatCard label="Total Pelamar"      value={stats.totalApplicants} color="text-cyan-600"   />
+          <StatCard label="Lamaran Dikirim"    value={stats.totalApplied}   color="text-emerald-600"/>
+          <StatCard label="Lamaran Diterima"   value={stats.totalAccepted}  color="text-orange-500" />
         </div>
 
         {/* Tabs */}
@@ -124,18 +168,16 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Tab: Client — Lowongan yang dipost */}
+        {/* ── TAB: CLIENT ── */}
         {tab === 'client' && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-stone-900">Lowongan yang Kamu Post</h2>
-              <Link
-                href="/jobs/new"
-                className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-colors"
-              >
+              <Link href="/jobs/new" className="px-4 py-2 text-sm bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-lg transition-colors">
                 + Post Baru
               </Link>
             </div>
+
             {myJobs.length === 0 ? (
               <div className="text-center py-16 bg-white border border-stone-200 rounded-xl">
                 <div className="text-4xl mb-3">📋</div>
@@ -147,44 +189,139 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {myJobs.map((job) => (
-                  <div key={job.id} className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${job.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-500'}`}>
-                          {job.status === 'open' ? 'Aktif' : 'Ditutup'}
-                        </span>
-                        <span className="text-xs text-stone-400">
-                          {job.applications?.[0]?.count ?? 0} pelamar
-                        </span>
-                      </div>
-                      <h3 className="font-bold text-stone-900 text-sm truncate">{job.judul}</h3>
-                      {job.lokasi && <p className="text-stone-400 text-xs mt-0.5">📍 {job.lokasi}</p>}
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <Link
-                        href={`/jobs/${job.id}`}
-                        className="px-3 py-1.5 text-xs border border-stone-200 text-stone-600 rounded-lg hover:bg-stone-50 transition-colors font-medium"
+                {myJobs.map(job => {
+                  const applicants = applicantsMap[job.id] ?? []
+                  const isExpanded = expandedJob === job.id
+
+                  return (
+                    <div key={job.id} className="bg-white border border-stone-200 rounded-xl overflow-hidden">
+
+                      {/* Baris utama job */}
+                      <div
+                        className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 cursor-pointer hover:bg-stone-50 transition-colors"
+                        onClick={() => setExpandedJob(isExpanded ? null : job.id)}
                       >
-                        Lihat
-                      </Link>
-                      {job.status === 'open' && (
-                        <button
-                          onClick={() => handleCloseJob(job.id)}
-                          className="px-3 py-1.5 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors cursor-pointer font-medium"
-                        >
-                          Tutup
-                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${job.status === 'open' ? 'bg-green-100 text-green-700' : 'bg-stone-100 text-stone-500'}`}>
+                              {job.status === 'open' ? 'Aktif' : 'Ditutup'}
+                            </span>
+                            <span className="text-xs text-stone-400">
+                              {applicants.length} pelamar
+                            </span>
+                          </div>
+                          <h3 className="font-bold text-stone-900 text-sm truncate">{job.judul}</h3>
+                          {job.lokasi && <p className="text-stone-400 text-xs mt-0.5">📍 {job.lokasi}</p>}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Link
+                            href={`/jobs/${job.id}`}
+                            onClick={e => e.stopPropagation()}
+                            className="px-3 py-1.5 text-xs border border-stone-200 text-stone-600 rounded-lg hover:bg-stone-50 transition-colors font-medium"
+                          >
+                            Lihat
+                          </Link>
+                          {job.status === 'open' && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleCloseJob(job.id) }}
+                              className="px-3 py-1.5 text-xs border border-red-200 text-red-500 rounded-lg hover:bg-red-50 transition-colors cursor-pointer font-medium"
+                            >
+                              Tutup
+                            </button>
+                          )}
+                          <span className="text-stone-300 text-xs">{isExpanded ? '▲' : '▼'}</span>
+                        </div>
+                      </div>
+
+                      {/* Daftar pelamar (expand) */}
+                      {isExpanded && (
+                        <div className="border-t border-stone-100 px-4 pb-4">
+                          {applicants.length === 0 ? (
+                            <p className="text-stone-400 text-sm text-center py-6">Belum ada pelamar.</p>
+                          ) : (
+                            <div className="flex flex-col gap-3 mt-4">
+                              {applicants.map(app => (
+                                <div key={app.id} className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 bg-stone-50 rounded-xl">
+
+                                  {/* Avatar */}
+                                  <div className="shrink-0">
+                                    {app.talent?.foto ? (
+                                      <img src={app.talent.foto} alt="" className="w-10 h-10 rounded-full object-cover" />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-500 flex items-center justify-center font-black text-base">
+                                        {app.talent?.nama?.[0]?.toUpperCase() ?? '?'}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Info pelamar */}
+                                  <div className="flex-1 min-w-0">
+                                    <p className="font-bold text-stone-900 text-sm">{app.talent?.nama ?? 'Talent'}</p>
+                                    <p className="text-stone-500 text-xs italic mt-0.5 line-clamp-2">"{app.pesan}"</p>
+                                    {app.talent?.skills?.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-2">
+                                        {app.talent.skills.slice(0, 4).map(sk => (
+                                          <span key={sk} className="text-xs bg-white border border-stone-200 text-stone-500 px-2 py-0.5 rounded-full">
+                                            {sk}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Aksi */}
+                                  <div className="flex flex-col items-end gap-2 shrink-0">
+                                    <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${STATUS_COLOR[app.status] ?? STATUS_COLOR.pending}`}>
+                                      {STATUS_LABEL[app.status] ?? app.status}
+                                    </span>
+                                    <div className="flex gap-1.5 flex-wrap justify-end">
+                                      {app.status === 'pending' && (
+                                        <>
+                                          <button
+                                            onClick={() => handleUpdateStatus(app.id, job.id, 'accepted')}
+                                            className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-lg font-semibold hover:bg-green-200 transition-colors cursor-pointer"
+                                          >
+                                            Terima
+                                          </button>
+                                          <button
+                                            onClick={() => handleUpdateStatus(app.id, job.id, 'rejected')}
+                                            className="px-3 py-1 text-xs bg-red-100 text-red-500 rounded-lg font-semibold hover:bg-red-200 transition-colors cursor-pointer"
+                                          >
+                                            Tolak
+                                          </button>
+                                        </>
+                                      )}
+                                      <Link
+                                        href={`/chat?jobId=${job.id}&with=${app.talent_id}`}
+                                        className="px-3 py-1 text-xs bg-indigo-100 text-indigo-600 rounded-lg font-semibold hover:bg-indigo-200 transition-colors"
+                                      >
+                                        💬 Chat
+                                      </Link>
+                                      <Link
+                                        href={`/profile/${app.talent_id}`}
+                                        className="px-3 py-1 text-xs border border-stone-200 text-stone-500 rounded-lg hover:bg-stone-100 transition-colors"
+                                      >
+                                        Profil
+                                      </Link>
+                                    </div>
+                                  </div>
+
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
+
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* Tab: Talent — Lamaran yang dikirim */}
+        {/* ── TAB: TALENT ── */}
         {tab === 'talent' && (
           <div>
             <h2 className="font-bold text-stone-900 mb-4">Lamaran yang Kamu Kirim</h2>
@@ -199,7 +336,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {myApplications.map((app) => (
+                {myApplications.map(app => (
                   <div key={app.id} className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-bold text-stone-900 text-sm truncate">
@@ -210,7 +347,7 @@ export default function DashboardPage() {
                       )}
                       <p className="text-stone-500 text-xs mt-1 line-clamp-1 italic">"{app.pesan}"</p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                       <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${STATUS_COLOR[app.status] ?? STATUS_COLOR.pending}`}>
                         {STATUS_LABEL[app.status] ?? app.status}
                       </span>
@@ -220,6 +357,14 @@ export default function DashboardPage() {
                       >
                         Lihat
                       </Link>
+                      {app.jobs?.user_id && (
+                        <Link
+                          href={`/chat?jobId=${app.job_id}&with=${app.jobs.user_id}`}
+                          className="px-3 py-1.5 text-xs bg-indigo-100 text-indigo-600 rounded-lg font-semibold hover:bg-indigo-200 transition-colors"
+                        >
+                          💬 Chat Poster
+                        </Link>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -229,6 +374,15 @@ export default function DashboardPage() {
         )}
 
       </div>
+    </div>
+  )
+}
+
+function StatCard({ label, value, color }) {
+  return (
+    <div className="bg-white border border-stone-200 rounded-xl p-4">
+      <p className="text-xs text-stone-400 mb-1">{label}</p>
+      <p className={`text-2xl font-black ${color}`}>{value}</p>
     </div>
   )
 }
