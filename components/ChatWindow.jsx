@@ -85,9 +85,9 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         <Link href="/dashboard" className="text-stone-400 hover:text-stone-600 transition-colors text-lg">
           ←
         </Link>
-        {otherUser.foto ? (
+        {otherUser.foto_url ? (
           <img
-            src={otherUser.foto}
+            src={otherUser.foto_url}
             alt=""
             className="w-9 h-9 rounded-full object-cover"
           />
