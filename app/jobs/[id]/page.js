@@ -254,9 +254,9 @@ export default function JobDetailPage() {
                   )}
                   {poster && (
                     <button
-                      onClick={() => router.push(`/chat?jobId=${job.id}&withUser=${poster.id}`)
-                      style={s.btnChat}
-                    >
+  onClick={() => router.push(`/chat?jobId=${job.id}&withUser=${poster.id}`)}
+  style={s.btnChat}
+>
                       💬 Chat dengan Poster
                     </button>
                   )}
