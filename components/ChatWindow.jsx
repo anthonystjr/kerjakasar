@@ -5,34 +5,64 @@ import Link from 'next/link'
 
 export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) {
   const [messages, setMessages] = useState([])
+  const [convId, setConvId] = useState(null)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef(null)
 
+  // Ambil atau buat conversation, lalu load pesan
   useEffect(() => {
-    const fetchMessages = async () => {
-      const { data } = await supabase
+    const init = async () => {
+      // Cari conversation yang sudah ada
+      let { data: conv } = await supabase
+        .from('conversations')
+        .select('id')
+        .eq('job_id', jobId === 'direct' ? null : jobId)
+        .or(`and(client_id.eq.${currentUser.id},talent_id.eq.${otherUser.id}),and(client_id.eq.${otherUser.id},talent_id.eq.${currentUser.id})`)
+        .maybeSingle()
+
+      // Kalau belum ada, buat baru
+      if (!conv) {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .insert({
+            job_id: jobId === 'direct' ? null : jobId,
+            client_id: currentUser.id,
+            talent_id: otherUser.id,
+          })
+          .select()
+          .single()
+        conv = newConv
+      }
+
+      if (!conv) return
+      setConvId(conv.id)
+
+      // Load pesan
+      const { data: msgs } = await supabase
         .from('messages')
         .select('*')
-        .eq('job_id', jobId)
-        .or(`sender_id.eq.${currentUser.id},sender_id.eq.${otherUser.id}`)
-        .or(`receiver_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}`)
+        .eq('job_id', conv.id)
         .order('created_at', { ascending: true })
-      setMessages(data ?? [])
+      setMessages(msgs ?? [])
     }
-    fetchMessages()
+
+    init()
   }, [jobId, currentUser.id, otherUser.id])
 
+  // Realtime
   useEffect(() => {
+    if (!convId) return
+
     const channel = supabase
-      .channel(`chat:${jobId}:${[currentUser.id, otherUser.id].sort().join('-')}`)
+      .channel(`chat:${convId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `job_id=eq.${jobId}`,
+          filter: `job_id=eq.${convId}`,
         },
         (payload) => {
           const msg = payload.new
@@ -47,21 +77,23 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [jobId, currentUser.id, otherUser.id])
+  }, [convId, currentUser.id, otherUser.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   const handleSend = async () => {
-    if (!text.trim() || sending) return
+    if (!text.trim() || sending || !convId) return
     setSending(true)
+
     const { error } = await supabase.from('messages').insert({
-      job_id: jobId,
+      job_id: convId,
       sender_id: currentUser.id,
       receiver_id: otherUser.id,
       content: text.trim(),
     })
+
     if (!error) setText('')
     setSending(false)
   }
@@ -145,7 +177,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         />
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sending}
+          disabled={!text.trim() || sending || !convId}
           className="px-4 py-2 bg-stone-900 text-white text-sm font-bold rounded-xl hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
         >
           {sending ? '...' : 'Kirim'}
