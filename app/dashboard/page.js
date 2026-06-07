@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import Navbar from '@/components/Navbar'
+import EscrowPanel from '@/components/EscrowPanel'
+import ReviewModal from '@/components/ReviewModal'
 
 const STATUS_COLOR = {
   pending:  'bg-yellow-100 text-yellow-700',
@@ -55,7 +57,7 @@ export default function DashboardPage() {
         const jobIds = jobs.map(j => j.id)
         const { data: allApps, error: appsError } = await supabase
           .from('applications')
-          .select('*, talent:talent_id(id, nama, foto_url, bio, skills)')
+          .select('*, talent:talent_id(id, nama, foto_url, bio, skills), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
           .in('job_id', jobIds)
           .order('created_at', { ascending: false })
 
@@ -75,7 +77,7 @@ export default function DashboardPage() {
       // Fetch lamaran yang dikirim sebagai talent
       const { data: apps } = await supabase
         .from('applications')
-        .select('*, jobs(id, judul, lokasi, kategori, user_id)')
+        .select('*, jobs(id, judul, lokasi, kategori, user_id, budget), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
         .eq('talent_id', session.user.id)
         .order('created_at', { ascending: false })
       setMyApplications(apps ?? [])
@@ -91,6 +93,36 @@ export default function DashboardPage() {
   const handleLogout = async () => {
     await supabase.auth.signOut()
     window.location.href = '/login'
+  }
+
+  // Reload data aplikasi (dipanggil ulang setelah escrow update)
+  const reloadApplicants = async (userId) => {
+    const { data: jobs } = await supabase
+      .from('jobs')
+      .select('*, applications(count)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+    if (jobs?.length) {
+      const jobIds = jobs.map(j => j.id)
+      const { data: allApps } = await supabase
+        .from('applications')
+        .select('*, talent:talent_id(id, nama, foto_url, bio, skills), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
+        .in('job_id', jobIds)
+        .order('created_at', { ascending: false })
+      const map = {}
+      for (const app of allApps ?? []) {
+        if (!map[app.job_id]) map[app.job_id] = []
+        map[app.job_id].push(app)
+      }
+      setApplicantsMap(map)
+    }
+    // Reload talent side juga
+    const { data: myApps } = await supabase
+      .from('applications')
+      .select('*, jobs(id, judul, lokasi, kategori, user_id, budget), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
+      .eq('talent_id', userId)
+      .order('created_at', { ascending: false })
+    setMyApplications(myApps ?? [])
   }
 
   const handleCloseJob = async (jobId) => {
@@ -109,6 +141,18 @@ export default function DashboardPage() {
         ...prev,
         [jobId]: prev[jobId].map(a => a.id === appId ? { ...a, status } : a),
       }))
+
+      // Saat diterima: otomatis buat escrow (jika belum ada)
+      if (status === 'accepted') {
+        const job = myJobs.find(j => j.id === jobId)
+        await fetch('/api/escrow/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ application_id: appId, amount: job?.budget ?? 0 }),
+        })
+        // Reload agar EscrowPanel langsung muncul
+        if (user) reloadApplicants(user.id)
+      }
     }
   }
 
@@ -125,6 +169,14 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-stone-50">
       <Navbar />
+      {reviewTarget && (
+        <ReviewModal
+          talent={reviewTarget.talent}
+          jobId={reviewTarget.jobId}
+          onClose={() => setReviewTarget(null)}
+          onSuccess={() => setReviewTarget(null)}
+        />
+      )}
       <div className="max-w-4xl mx-auto px-4 py-10">
 
         {/* Header profil */}
@@ -326,7 +378,18 @@ export default function DashboardPage() {
                                     </div>
                                   </div>
 
-                                </div>
+                                {/* EscrowPanel muncul di bawah setelah accepted */}
+                                {app.status === 'accepted' && (
+                                  <EscrowPanel
+                                    escrow={app.escrow_transactions?.[0] ?? null}
+                                    applicationId={app.id}
+                                    jobBudget={myJobs.find(j => j.id === job.id)?.budget ?? 0}
+                                    isClient={true}
+                                    onUpdate={() => reloadApplicants(user.id)}
+                                  />
+                                )}
+
+                              </div>
                               ))}
                             </div>
                           )}
@@ -357,7 +420,8 @@ export default function DashboardPage() {
             ) : (
               <div className="flex flex-col gap-3">
                 {myApplications.map(app => (
-                  <div key={app.id} className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div key={app.id} className="bg-white border border-stone-200 rounded-xl p-4 flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-bold text-stone-900 text-sm truncate">
                         {app.jobs?.judul ?? 'Lowongan tidak tersedia'}
@@ -386,6 +450,16 @@ export default function DashboardPage() {
                         </Link>
                       )}
                     </div>
+                    </div>
+                    {app.status === 'accepted' && (
+                      <EscrowPanel
+                        escrow={app.escrow_transactions?.[0] ?? null}
+                        applicationId={app.id}
+                        jobBudget={app.jobs?.budget ?? 0}
+                        isClient={false}
+                        onUpdate={() => reloadApplicants(user.id)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
