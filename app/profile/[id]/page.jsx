@@ -3,7 +3,8 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import Navbar from '@/components/Navbar'
 
-export async function generateMetadata({ params }) {
+export async function generateMetadata({ params: paramsPromise }) {
+  const params = await paramsPromise
   const supabase = await createClient()
   const { data } = await supabase
     .from('users')
@@ -18,7 +19,8 @@ export async function generateMetadata({ params }) {
   }
 }
 
-export default async function PublicProfilePage({ params }) {
+export default async function PublicProfilePage({ params: paramsPromise }) {
+  const params = await paramsPromise
   const supabase = await createClient()
 
   const { data: talent } = await supabase
