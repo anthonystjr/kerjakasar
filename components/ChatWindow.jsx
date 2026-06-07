@@ -5,92 +5,134 @@ import Link from 'next/link'
 
 export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) {
   const [messages, setMessages] = useState([])
+  const [convId, setConvId] = useState(null)
+  const [initError, setInitError] = useState('')
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
-  const [error, setError] = useState('')
+  const [sendError, setSendError] = useState('')
   const bottomRef = useRef(null)
 
-  // Buat filter channel unik berdasarkan pasangan user + job
-  const channelKey = [jobId, currentUser.id, otherUser.id].sort().join('-')
+  const effectiveJobId = jobId === 'direct' ? null : jobId
 
   useEffect(() => {
-    const loadMessages = async () => {
-      const jobFilter = jobId === 'direct' ? null : jobId
+    const init = async () => {
+      setInitError('')
 
-      let query = supabase
-        .from('messages')
-        .select('*')
-        .or(
-          `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}),` +
-          `and(sender_id.eq.${otherUser.id},receiver_id.eq.${currentUser.id})`
-        )
-        .order('created_at', { ascending: true })
+      // ── 1. Cari conversation yang sudah ada ──
+      // Coba query dengan job_id
+      let conv = null
 
-      if (jobFilter) {
-        query = query.eq('job_id', jobFilter)
+      if (effectiveJobId) {
+        // Ada job_id: cari berdasarkan job + pasangan user
+        const { data } = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('job_id', effectiveJobId)
+          .or(
+            `and(client_id.eq.${currentUser.id},talent_id.eq.${otherUser.id}),` +
+            `and(client_id.eq.${otherUser.id},talent_id.eq.${currentUser.id})`
+          )
+          .maybeSingle()
+        conv = data
+      } else {
+        // Direct chat: cari berdasarkan pasangan user saja
+        const { data } = await supabase
+          .from('conversations')
+          .select('id')
+          .is('job_id', null)
+          .or(
+            `and(client_id.eq.${currentUser.id},talent_id.eq.${otherUser.id}),` +
+            `and(client_id.eq.${otherUser.id},talent_id.eq.${currentUser.id})`
+          )
+          .maybeSingle()
+        conv = data
       }
 
-      const { data, error: fetchErr } = await query
-      if (fetchErr) console.error('Load messages error:', fetchErr)
-      setMessages(data ?? [])
+      // ── 2. Buat conversation baru jika belum ada ──
+      if (!conv) {
+        const { data: newConv, error: createErr } = await supabase
+          .from('conversations')
+          .insert({
+            job_id: effectiveJobId,
+            client_id: currentUser.id,
+            talent_id: otherUser.id,
+          })
+          .select('id')
+          .single()
 
-      // Mark pesan masuk sebagai sudah dibaca
-      const unreadIds = (data ?? [])
+        if (createErr) {
+          console.error('Gagal buat conversation:', createErr)
+          setInitError('Gagal memulai chat: ' + createErr.message)
+          return
+        }
+        conv = newConv
+      }
+
+      setConvId(conv.id)
+
+      // ── 3. Load pesan ──
+      const { data: msgs, error: msgErr } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conv.id)
+        .order('created_at', { ascending: true })
+
+      if (msgErr) console.error('Load messages error:', msgErr)
+      setMessages(msgs ?? [])
+
+      // ── 4. Mark as read ──
+      const unreadIds = (msgs ?? [])
         .filter(m => m.receiver_id === currentUser.id && !m.is_read)
         .map(m => m.id)
-
       if (unreadIds.length > 0) {
-        await supabase.from('messages').update({ is_read: true }).in('id', unreadIds)
+        supabase.from('messages').update({ is_read: true }).in('id', unreadIds)
       }
     }
 
-    loadMessages()
-  }, [jobId, currentUser.id, otherUser.id])
+    init()
+  }, [effectiveJobId, currentUser.id, otherUser.id])
 
-  // Realtime
+  // ── Realtime ──
   useEffect(() => {
+    if (!convId) return
+
     const channel = supabase
-      .channel(`messages:${channelKey}`)
+      .channel(`chat:${convId}`)
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` },
         async (payload) => {
           const msg = payload.new
-          const isMine = msg.sender_id === currentUser.id && msg.receiver_id === otherUser.id
-          const isTheirs = msg.sender_id === otherUser.id && msg.receiver_id === currentUser.id
-          if (!isMine && !isTheirs) return
-
           setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
-
-          if (isTheirs && !msg.is_read) {
-            await supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
+          if (msg.receiver_id === currentUser.id && !msg.is_read) {
+            supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
           }
         }
       )
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [channelKey, currentUser.id, otherUser.id])
+  }, [convId, currentUser.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   const handleSend = async () => {
-    if (!text.trim() || sending) return
-    setError('')
+    if (!text.trim() || sending || !convId) return
+    setSendError('')
     setSending(true)
 
-    const { error: sendErr } = await supabase.from('messages').insert({
-      job_id: jobId === 'direct' ? null : jobId,
+    const { error } = await supabase.from('messages').insert({
+      conversation_id: convId,
       sender_id: currentUser.id,
       receiver_id: otherUser.id,
       content: text.trim(),
     })
 
-    if (sendErr) {
-      console.error('Send error:', sendErr)
-      setError('Gagal mengirim pesan: ' + sendErr.message)
+    if (error) {
+      console.error('Send error:', error)
+      setSendError('Gagal kirim: ' + error.message)
     } else {
       setText('')
     }
@@ -101,11 +143,19 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
+  // ── Render ──
+  if (initError) return (
+    <div className="bg-white border border-stone-200 rounded-xl p-8 text-center">
+      <p className="text-red-500 text-sm mb-4">{initError}</p>
+      <Link href="/dashboard" className="text-sm text-stone-500 hover:underline">← Kembali</Link>
+    </div>
+  )
+
   return (
     <div className="bg-white border border-stone-200 rounded-xl overflow-hidden flex flex-col" style={{ height: '75vh' }}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-stone-100 flex items-center gap-3">
-        <Link href="/dashboard" className="text-stone-400 hover:text-stone-600 transition-colors text-lg">←</Link>
+        <Link href="/dashboard" className="text-stone-400 hover:text-stone-600 text-lg">←</Link>
         {otherUser.foto_url ? (
           <img src={otherUser.foto_url} alt="" className="w-9 h-9 rounded-full object-cover" />
         ) : (
@@ -124,7 +174,10 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
 
       {/* Pesan */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-2">
-        {messages.length === 0 && (
+        {!convId && (
+          <p className="text-center text-stone-400 text-sm mt-8 animate-pulse">Memuat chat...</p>
+        )}
+        {convId && messages.length === 0 && (
           <p className="text-center text-stone-400 text-sm mt-8">Belum ada pesan. Mulai percakapan!</p>
         )}
         {messages.map((msg) => {
@@ -146,8 +199,10 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         <div ref={bottomRef} />
       </div>
 
-      {error && (
-        <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg">{error}</div>
+      {sendError && (
+        <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg">
+          {sendError}
+        </div>
       )}
 
       {/* Input */}
@@ -156,14 +211,15 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
           value={text}
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Ketik pesan... (Enter untuk kirim)"
+          placeholder={convId ? 'Ketik pesan... (Enter untuk kirim)' : 'Memuat...'}
+          disabled={!convId}
           rows={1}
-          className="flex-1 resize-none bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-300 transition-all"
+          className="flex-1 resize-none bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 text-sm text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-stone-300 transition-all disabled:opacity-50"
           style={{ maxHeight: '120px', overflowY: 'auto' }}
         />
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sending}
+          disabled={!text.trim() || sending || !convId}
           className="px-4 py-2 bg-stone-900 text-white text-sm font-bold rounded-xl hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
         >
           {sending ? '...' : 'Kirim'}
