@@ -13,7 +13,6 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
   // Ambil atau buat conversation, lalu load pesan
   useEffect(() => {
     const init = async () => {
-      // Cari conversation yang sudah ada
       let { data: conv } = await supabase
         .from('conversations')
         .select('id')
@@ -21,7 +20,6 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         .or(`and(client_id.eq.${currentUser.id},talent_id.eq.${otherUser.id}),and(client_id.eq.${otherUser.id},talent_id.eq.${currentUser.id})`)
         .maybeSingle()
 
-      // Kalau belum ada, buat baru
       if (!conv) {
         const { data: newConv } = await supabase
           .from('conversations')
@@ -38,13 +36,20 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
       if (!conv) return
       setConvId(conv.id)
 
-      // Load pesan
       const { data: msgs } = await supabase
         .from('messages')
         .select('*')
-        .eq('job_id', conv.id)
+        .eq('conversation_id', conv.id)
         .order('created_at', { ascending: true })
       setMessages(msgs ?? [])
+
+      // Mark semua pesan dari otherUser sebagai sudah dibaca
+      await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('conversation_id', conv.id)
+        .eq('receiver_id', currentUser.id)
+        .eq('is_read', false)
     }
 
     init()
@@ -62,15 +67,22 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
           event: 'INSERT',
           schema: 'public',
           table: 'messages',
-          filter: `job_id=eq.${convId}`,
+          filter: `conversation_id=eq.${convId}`,
         },
-        (payload) => {
+        async (payload) => {
           const msg = payload.new
           const isRelevant =
             (msg.sender_id === currentUser.id && msg.receiver_id === otherUser.id) ||
             (msg.sender_id === otherUser.id && msg.receiver_id === currentUser.id)
           if (isRelevant) {
             setMessages((prev) => [...prev, msg])
+            // Mark as read jika pesan masuk untuk kita
+            if (msg.receiver_id === currentUser.id) {
+              await supabase
+                .from('messages')
+                .update({ is_read: true })
+                .eq('id', msg.id)
+            }
           }
         }
       )
@@ -88,7 +100,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
     setSending(true)
 
     const { error } = await supabase.from('messages').insert({
-      job_id: convId,
+      conversation_id: convId,
       sender_id: currentUser.id,
       receiver_id: otherUser.id,
       content: text.trim(),
@@ -116,11 +128,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
           ←
         </Link>
         {otherUser.foto_url ? (
-          <img
-            src={otherUser.foto_url}
-            alt=""
-            className="w-9 h-9 rounded-full object-cover"
-          />
+          <img src={otherUser.foto_url} alt="" className="w-9 h-9 rounded-full object-cover" />
         ) : (
           <div className="w-9 h-9 rounded-full bg-indigo-100 text-indigo-500 flex items-center justify-center font-black text-sm">
             {otherUser.nama?.[0]?.toUpperCase() ?? '?'}
@@ -130,6 +138,12 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
           <p className="font-bold text-stone-900 text-sm truncate">{otherUser.nama}</p>
           <p className="text-stone-400 text-xs truncate">Re: {jobTitle}</p>
         </div>
+        <Link
+          href={`/profile/${otherUser.id}`}
+          className="text-xs text-stone-400 hover:text-stone-600 transition-colors shrink-0"
+        >
+          Lihat Profil
+        </Link>
       </div>
 
       {/* Pesan */}
@@ -151,11 +165,16 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
                 }`}
               >
                 {msg.content}
-                <p className="text-xs mt-1 opacity-60">
+                <p className="text-xs mt-1 opacity-60 flex items-center gap-1 justify-end">
                   {new Date(msg.created_at).toLocaleTimeString('id-ID', {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
+                  {isMine && (
+                    <span title={msg.is_read ? 'Sudah dibaca' : 'Terkirim'}>
+                      {msg.is_read ? '✓✓' : '✓'}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>

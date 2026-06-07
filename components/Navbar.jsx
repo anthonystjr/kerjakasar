@@ -2,10 +2,12 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { useUnreadCount } from '@/hooks/useUnreadCount'
 
 export default function Navbar() {
   const [user, setUser] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const unread = useUnreadCount(user?.id)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -40,6 +42,12 @@ export default function Navbar() {
           >
             Cari Kerja
           </Link>
+          <Link
+            href="/talents"
+            className="text-stone-600 hover:text-stone-900 text-sm font-medium transition-colors"
+          >
+            Cari Talent
+          </Link>
           {user && (
             <Link
               href="/jobs/new"
@@ -52,9 +60,14 @@ export default function Navbar() {
             <div className="flex items-center gap-3">
               <Link
                 href="/dashboard"
-                className="text-stone-600 hover:text-stone-900 text-sm font-medium transition-colors"
+                className="relative text-stone-600 hover:text-stone-900 text-sm font-medium transition-colors"
               >
                 Dashboard
+                {unread > 0 && (
+                  <span className="absolute -top-2 -right-3 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
               </Link>
               <button
                 onClick={handleLogout}
@@ -97,6 +110,9 @@ export default function Navbar() {
           <Link href="/jobs" className="text-stone-700 text-sm font-medium py-1" onClick={() => setMenuOpen(false)}>
             Cari Kerja
           </Link>
+          <Link href="/talents" className="text-stone-700 text-sm font-medium py-1" onClick={() => setMenuOpen(false)}>
+            Cari Talent
+          </Link>
           {user && (
             <Link href="/jobs/new" className="text-stone-700 text-sm font-medium py-1" onClick={() => setMenuOpen(false)}>
               Post Lowongan
@@ -104,8 +120,13 @@ export default function Navbar() {
           )}
           {user ? (
             <>
-              <Link href="/dashboard" className="text-stone-700 text-sm font-medium py-1" onClick={() => setMenuOpen(false)}>
+              <Link href="/dashboard" className="relative inline-flex items-center gap-2 text-stone-700 text-sm font-medium py-1" onClick={() => setMenuOpen(false)}>
                 Dashboard
+                {unread > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                    {unread > 99 ? '99+' : unread}
+                  </span>
+                )}
               </Link>
               <button
                 onClick={handleLogout}

@@ -26,6 +26,7 @@ export default function DashboardPage() {
   const [loading, setLoading]               = useState(true)
   const [tab, setTab]                       = useState('client')
   const [stats, setStats] = useState({ totalJobs: 0, totalApplicants: 0, totalApplied: 0, totalAccepted: 0 })
+  const [reviewTarget, setReviewTarget] = useState(null) // { talent, jobId }
 
   useEffect(() => {
     const init = async () => {
@@ -308,6 +309,14 @@ export default function DashboardPage() {
                                       >
                                         💬 Chat
                                       </Link>
+                                      {app.status === 'accepted' && (
+                                        <button
+                                          onClick={() => setReviewTarget({ talent: app.talent, jobId: job.id })}
+                                          className="px-3 py-1 text-xs bg-amber-100 text-amber-700 rounded-lg font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
+                                        >
+                                          ⭐ Ulasan
+                                        </button>
+                                      )}
                                       <Link
                                         href={`/profile/${app.talent_id}`}
                                         className="px-3 py-1 text-xs border border-stone-200 text-stone-500 rounded-lg hover:bg-stone-100 transition-colors"

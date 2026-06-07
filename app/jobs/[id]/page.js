@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import Navbar from '@/components/Navbar'
 
 export default function JobDetailPage() {
   const { id } = useParams()
@@ -136,7 +137,9 @@ export default function JobDetailPage() {
   if (!job) return null
 
   return (
-    <div style={s.page}>
+    <div style={{ minHeight: '100vh', background: '#f9fafb' }}>
+      <Navbar />
+      <div style={s.page}>
       <div style={s.container}>
 
         <button onClick={() => router.back()} style={s.backBtn}>
@@ -266,11 +269,12 @@ export default function JobDetailPage() {
         </div>
       </div>
     </div>
+      </div>
   )
 }
 
 const s = {
-  page: { minHeight: '100vh', background: '#f9fafb', padding: '2rem 1rem' },
+  page: { padding: '2rem 1rem' },
   container: { maxWidth: 900, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 },
   loadingWrap: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '50vh' },
   loadingText: { color: '#6b7280', fontSize: 16 },
