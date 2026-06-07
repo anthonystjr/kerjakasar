@@ -21,7 +21,7 @@ export async function PATCH(req) {
     .eq('id', escrow_id)
     .maybeSingle()
 
-  if (!escrow) return NextResponse.json({ error: 'Escrow tidak ditemukan' }, { status: 404 })
+  if (!escrow) return NextResponse.json({ error: 'Escrow tidak ditemukan — pastikan RLS policy SELECT sudah aktif di Supabase.' }, { status: 404 })
   if (escrow.client_id !== user.id) return NextResponse.json({ error: 'Bukan pemilik escrow' }, { status: 403 })
   if (escrow.status !== 'pending_payment') {
     return NextResponse.json({ error: 'Jumlah hanya bisa diubah sebelum transfer' }, { status: 400 })
@@ -35,5 +35,6 @@ export async function PATCH(req) {
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) return NextResponse.json({ error: 'Update gagal — pastikan RLS policy UPDATE sudah aktif di Supabase.' }, { status: 500 })
   return NextResponse.json({ escrow: data })
 }
