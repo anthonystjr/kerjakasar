@@ -90,13 +90,50 @@ export default function EscrowPanel({ escrow, applicationId, jobBudget = 0, isCl
   const st = escrow.status
   const color = STATUS_COLOR[st] ?? {}
 
+  // ── Escrow ada tapi jumlah belum diisi (amount = 0) ───────────────
+  if (isClient && st === 'pending_payment' && Number(escrow.amount) < 1000) {
+    return (
+      <div style={s.box}>
+        <h3 style={s.title}>🔒 Escrow Dibuat — Isi Jumlah Dana</h3>
+        <p style={s.info}>Talent sudah diterima. Masukkan jumlah dana yang akan dikunci untuk proyek ini.</p>
+        <div style={s.form}>
+          <label style={s.label}>Jumlah Dana (Rp)</label>
+          <input
+            type="number" value={amount} min={1000}
+            onChange={e => setAmount(e.target.value)}
+            style={s.input} placeholder="cth: 500000"
+          />
+          {err && <p style={s.err}>{err}</p>}
+          <button style={s.btnPri} disabled={loading || !amount || Number(amount) < 1000}
+            onClick={async () => {
+              setErr(''); setLoading(true)
+              try {
+                const r = await fetch('/api/escrow/update-amount', {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ escrow_id: escrow.id, amount: Number(amount) }),
+                })
+                const d = await r.json()
+                if (!r.ok) { setErr(d.error || 'Gagal menyimpan'); setLoading(false); return }
+                onUpdate?.()
+              } catch { setErr('Gagal menghubungi server') } finally { setLoading(false) }
+            }}>
+            {loading ? 'Menyimpan...' : 'Simpan Jumlah Dana'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ── Ada escrow ────────────────────────────────────────────────────
   return (
     <div style={s.box}>
       <h3 style={s.title}>🔒 Escrow Dana</h3>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <span style={{ ...s.badge, ...color }}>{STATUS_LABEL[st] ?? st}</span>
-        <span style={s.amount}>{fmt(escrow.amount)}</span>
+        <span style={Number(escrow.amount) < 1000 ? { ...s.amount, color: '#94a3b8', fontSize: 14 } : s.amount}>
+          {Number(escrow.amount) < 1000 ? 'Jumlah belum diisi' : fmt(escrow.amount)}
+        </span>
       </div>
 
       {escrow.payment_ref && <p style={s.meta}>Ref: {escrow.payment_ref}</p>}
