@@ -99,7 +99,7 @@ export default function DashboardPage() {
 
   const handleCloseJob = async (jobId) => {
     await supabase.from('jobs').update({ status: 'closed' }).eq('id', jobId)
-    setMyJobs(prev => prev.map(j => j.id === jobId ? { ...j, status: 'closed' } : j))
+    setMyJobs(prev => prev.filter(j => j.id !== jobId))
   }
 
   const handleUpdateStatus = async (appId, jobId, status) => {
