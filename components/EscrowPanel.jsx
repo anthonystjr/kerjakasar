@@ -68,7 +68,9 @@ export default function EscrowPanel({ escrow: escrowProp, applicationId, jobBudg
             {err && <p style={s.err}>{err}</p>}
             <div style={s.row}>
               <button style={s.btnSec} onClick={() => setShowForm(null)}>Batal</button>
-              <button style={s.btnPri} disabled={loading}
+              <button
+                style={{ ...s.btnPri, ...(loading || Number(amount) < 1000 ? s.btnDisabled : {}) }}
+                disabled={loading || Number(amount) < 1000}
                 onClick={() => call('/api/escrow/create', { application_id: applicationId, amount: Number(amount) })}>
                 {loading ? 'Menyimpan...' : 'Buat Escrow'}
               </button>
@@ -94,8 +96,14 @@ export default function EscrowPanel({ escrow: escrowProp, applicationId, jobBudg
           <label style={s.label}>Jumlah Dana (Rp)</label>
           <input type="number" value={amount} min={1000} onChange={e => setAmount(e.target.value)}
             style={s.input} placeholder="cth: 500000" />
+          {Number(amount) > 0 && Number(amount) < 1000 && (
+            <p style={{ color: '#f59e0b', fontSize: 12, margin: 0 }}>⚠️ Minimal Rp 1.000</p>
+          )}
+          {!amount && <p style={{ color: '#94a3b8', fontSize: 12, margin: 0 }}>Isi jumlah dana terlebih dahulu</p>}
           {err && <p style={s.err}>{err}</p>}
-          <button style={s.btnPri} disabled={loading || Number(amount) < 1000}
+          <button
+            style={{ ...s.btnPri, ...(loading || Number(amount) < 1000 ? s.btnDisabled : {}) }}
+            disabled={loading || Number(amount) < 1000}
             onClick={() => call('/api/escrow/update-amount', { escrow_id: escrow.id, amount: Number(amount) }, 'PATCH')}>
             {loading ? 'Menyimpan...' : 'Simpan Jumlah Dana'}
           </button>
@@ -205,4 +213,5 @@ const s = {
   btnPri:   { background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', flex: 1 },
   btnSec:   { background: '#fff', color: '#374151', border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 18px', fontSize: 13, cursor: 'pointer', flex: 1 },
   btnDanger:{ background: '#fee2e2', color: '#991b1b', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', flex: 1 },
+  btnDisabled: { opacity: 0.45, cursor: 'not-allowed' },
 }
