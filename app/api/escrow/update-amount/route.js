@@ -19,7 +19,7 @@ export async function PATCH(req) {
     .from('escrow_transactions')
     .select('id, client_id, status, amount')
     .eq('id', escrow_id)
-    .single()
+    .maybeSingle()
 
   if (!escrow) return NextResponse.json({ error: 'Escrow tidak ditemukan' }, { status: 404 })
   if (escrow.client_id !== user.id) return NextResponse.json({ error: 'Bukan pemilik escrow' }, { status: 403 })
@@ -32,7 +32,7 @@ export async function PATCH(req) {
     .update({ amount: Number(amount) })
     .eq('id', escrow_id)
     .select()
-    .single()
+    .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ escrow: data })

@@ -1,7 +1,4 @@
 // app/api/escrow/refund/route.js
-// Client bisa refund jika talent tidak mengerjakan (status: funded)
-// Body: { escrow_id, note }
-
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 
@@ -17,13 +14,11 @@ export async function POST(req) {
     .from('escrow_transactions')
     .select('id, client_id, status')
     .eq('id', escrow_id)
-    .single()
+    .maybeSingle()
 
   if (!escrow) return NextResponse.json({ error: 'Escrow tidak ditemukan' }, { status: 404 })
   if (escrow.client_id !== user.id) return NextResponse.json({ error: 'Bukan pemilik escrow' }, { status: 403 })
-
-  const allowed = ['pending_payment', 'funded']
-  if (!allowed.includes(escrow.status)) {
+  if (!['pending_payment', 'funded'].includes(escrow.status)) {
     return NextResponse.json({ error: `Tidak bisa refund dari status: ${escrow.status}` }, { status: 400 })
   }
 
@@ -32,7 +27,7 @@ export async function POST(req) {
     .update({ status: 'refunded', refunded_at: new Date().toISOString(), note: note ?? 'Dibatalkan oleh client' })
     .eq('id', escrow_id)
     .select()
-    .single()
+    .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ escrow: data })
