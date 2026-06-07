@@ -12,20 +12,19 @@ export async function POST(req) {
     return NextResponse.json({ error: 'application_id wajib diisi' }, { status: 400 })
   }
 
-  // amount boleh 0 saat auto-create — client akan isi di EscrowPanel
   const safeAmount = Number(amount) || 0
 
+  // Ambil data aplikasi — tidak cek status, sudah dihandle di dashboard
   const { data: app, error: appErr } = await supabase
     .from('applications')
-    .select('id, job_id, talent_id, status, jobs(user_id)')
+    .select('id, job_id, talent_id, jobs(user_id)')
     .eq('id', application_id)
     .single()
 
   if (appErr || !app) return NextResponse.json({ error: 'Aplikasi tidak ditemukan' }, { status: 404 })
   if (app.jobs.user_id !== user.id) return NextResponse.json({ error: 'Bukan pemilik job' }, { status: 403 })
-  if (app.status !== 'accepted') return NextResponse.json({ error: 'Aplikasi belum diterima' }, { status: 400 })
 
-  // Kalau sudah ada, return existing (idempotent — tidak error)
+  // Kalau sudah ada, return existing (idempotent)
   const { data: existing } = await supabase
     .from('escrow_transactions')
     .select('*')

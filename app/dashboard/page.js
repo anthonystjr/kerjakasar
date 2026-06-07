@@ -82,6 +82,7 @@ export default function DashboardPage() {
         .eq('talent_id', session.user.id)
         .order('created_at', { ascending: false })
       setMyApplications(apps ?? [])
+      if (apps?.length) ensureEscrowLoaded(apps ?? [])
 
       const accepted = (apps ?? []).filter(a => a.status === 'accepted').length
       setStats(prev => ({ ...prev, totalApplied: (apps ?? []).length, totalAccepted: accepted }))
@@ -144,7 +145,7 @@ export default function DashboardPage() {
     }
   }
 
-  // Update escrow di state setelah aksi dari EscrowPanel (tanpa reload DB)
+  // Fetch escrow terbaru dan inject ke state kedua sisi
   const handleEscrowUpdate = async (jobId, appId) => {
     const { data: escrow } = await supabase
       .from('escrow_transactions')
@@ -152,18 +153,41 @@ export default function DashboardPage() {
       .eq('application_id', appId)
       .maybeSingle()
 
+    const updated = escrow ? [escrow] : []
+
     setApplicantsMap(prev => ({
       ...prev,
       [jobId]: (prev[jobId] ?? []).map(a =>
-        a.id === appId
-          ? { ...a, escrow_transactions: escrow ? [escrow] : [] }
-          : a
+        a.id === appId ? { ...a, escrow_transactions: updated } : a
       ),
     }))
 
-    // Update sisi talent juga
     setMyApplications(prev => prev.map(a =>
-      a.id === appId ? { ...a, escrow_transactions: escrow ? [escrow] : [] } : a
+      a.id === appId ? { ...a, escrow_transactions: updated } : a
+    ))
+  }
+
+  // Saat mount: untuk app accepted yang belum punya escrow di state, fetch manual
+  // (fallback kalau FK belum ada di Supabase sehingga nested select tidak jalan)
+  const ensureEscrowLoaded = async (apps) => {
+    const acceptedWithoutEscrow = apps.filter(
+      a => a.status === 'accepted' && (!a.escrow_transactions || a.escrow_transactions.length === 0)
+    )
+    if (!acceptedWithoutEscrow.length) return
+
+    const ids = acceptedWithoutEscrow.map(a => a.id)
+    const { data: escrows } = await supabase
+      .from('escrow_transactions')
+      .select('id, status, amount, payment_ref, note, funded_at, released_at, application_id')
+      .in('application_id', ids)
+
+    if (!escrows?.length) return
+
+    const escrowMap = {}
+    for (const e of escrows) escrowMap[e.application_id] = e
+
+    setMyApplications(prev => prev.map(a =>
+      escrowMap[a.id] ? { ...a, escrow_transactions: [escrowMap[a.id]] } : a
     ))
   }
 
