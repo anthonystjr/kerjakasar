@@ -5,128 +5,107 @@ import Link from 'next/link'
 
 export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) {
   const [messages, setMessages] = useState([])
-  const [convId, setConvId] = useState(null)
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState('')
   const bottomRef = useRef(null)
 
-  // Ambil atau buat conversation, lalu load pesan
+  // Buat filter channel unik berdasarkan pasangan user + job
+  const channelKey = [jobId, currentUser.id, otherUser.id].sort().join('-')
+
   useEffect(() => {
-    const init = async () => {
-      let { data: conv } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('job_id', jobId === 'direct' ? null : jobId)
-        .or(`and(client_id.eq.${currentUser.id},talent_id.eq.${otherUser.id}),and(client_id.eq.${otherUser.id},talent_id.eq.${currentUser.id})`)
-        .maybeSingle()
+    const loadMessages = async () => {
+      const jobFilter = jobId === 'direct' ? null : jobId
 
-      if (!conv) {
-        const { data: newConv } = await supabase
-          .from('conversations')
-          .insert({
-            job_id: jobId === 'direct' ? null : jobId,
-            client_id: currentUser.id,
-            talent_id: otherUser.id,
-          })
-          .select()
-          .single()
-        conv = newConv
-      }
-
-      if (!conv) return
-      setConvId(conv.id)
-
-      const { data: msgs } = await supabase
+      let query = supabase
         .from('messages')
         .select('*')
-        .eq('conversation_id', conv.id)
+        .or(
+          `and(sender_id.eq.${currentUser.id},receiver_id.eq.${otherUser.id}),` +
+          `and(sender_id.eq.${otherUser.id},receiver_id.eq.${currentUser.id})`
+        )
         .order('created_at', { ascending: true })
-      setMessages(msgs ?? [])
 
-      // Mark semua pesan dari otherUser sebagai sudah dibaca
-      await supabase
-        .from('messages')
-        .update({ is_read: true })
-        .eq('conversation_id', conv.id)
-        .eq('receiver_id', currentUser.id)
-        .eq('is_read', false)
+      if (jobFilter) {
+        query = query.eq('job_id', jobFilter)
+      }
+
+      const { data, error: fetchErr } = await query
+      if (fetchErr) console.error('Load messages error:', fetchErr)
+      setMessages(data ?? [])
+
+      // Mark pesan masuk sebagai sudah dibaca
+      const unreadIds = (data ?? [])
+        .filter(m => m.receiver_id === currentUser.id && !m.is_read)
+        .map(m => m.id)
+
+      if (unreadIds.length > 0) {
+        await supabase.from('messages').update({ is_read: true }).in('id', unreadIds)
+      }
     }
 
-    init()
+    loadMessages()
   }, [jobId, currentUser.id, otherUser.id])
 
   // Realtime
   useEffect(() => {
-    if (!convId) return
-
     const channel = supabase
-      .channel(`chat:${convId}`)
+      .channel(`messages:${channelKey}`)
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `conversation_id=eq.${convId}`,
-        },
+        { event: 'INSERT', schema: 'public', table: 'messages' },
         async (payload) => {
           const msg = payload.new
-          const isRelevant =
-            (msg.sender_id === currentUser.id && msg.receiver_id === otherUser.id) ||
-            (msg.sender_id === otherUser.id && msg.receiver_id === currentUser.id)
-          if (isRelevant) {
-            setMessages((prev) => [...prev, msg])
-            // Mark as read jika pesan masuk untuk kita
-            if (msg.receiver_id === currentUser.id) {
-              await supabase
-                .from('messages')
-                .update({ is_read: true })
-                .eq('id', msg.id)
-            }
+          const isMine = msg.sender_id === currentUser.id && msg.receiver_id === otherUser.id
+          const isTheirs = msg.sender_id === otherUser.id && msg.receiver_id === currentUser.id
+          if (!isMine && !isTheirs) return
+
+          setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
+
+          if (isTheirs && !msg.is_read) {
+            await supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
           }
         }
       )
       .subscribe()
 
     return () => supabase.removeChannel(channel)
-  }, [convId, currentUser.id, otherUser.id])
+  }, [channelKey, currentUser.id, otherUser.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
   const handleSend = async () => {
-    if (!text.trim() || sending || !convId) return
+    if (!text.trim() || sending) return
+    setError('')
     setSending(true)
 
-    const { error } = await supabase.from('messages').insert({
-      conversation_id: convId,
+    const { error: sendErr } = await supabase.from('messages').insert({
+      job_id: jobId === 'direct' ? null : jobId,
       sender_id: currentUser.id,
       receiver_id: otherUser.id,
       content: text.trim(),
     })
 
-    if (!error) setText('')
+    if (sendErr) {
+      console.error('Send error:', sendErr)
+      setError('Gagal mengirim pesan: ' + sendErr.message)
+    } else {
+      setText('')
+    }
     setSending(false)
   }
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   return (
-    <div
-      className="bg-white border border-stone-200 rounded-xl overflow-hidden flex flex-col"
-      style={{ height: '75vh' }}
-    >
+    <div className="bg-white border border-stone-200 rounded-xl overflow-hidden flex flex-col" style={{ height: '75vh' }}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-stone-100 flex items-center gap-3">
-        <Link href="/dashboard" className="text-stone-400 hover:text-stone-600 transition-colors text-lg">
-          ←
-        </Link>
+        <Link href="/dashboard" className="text-stone-400 hover:text-stone-600 transition-colors text-lg">←</Link>
         {otherUser.foto_url ? (
           <img src={otherUser.foto_url} alt="" className="w-9 h-9 rounded-full object-cover" />
         ) : (
@@ -138,10 +117,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
           <p className="font-bold text-stone-900 text-sm truncate">{otherUser.nama}</p>
           <p className="text-stone-400 text-xs truncate">Re: {jobTitle}</p>
         </div>
-        <Link
-          href={`/profile/${otherUser.id}`}
-          className="text-xs text-stone-400 hover:text-stone-600 transition-colors shrink-0"
-        >
+        <Link href={`/profile/${otherUser.id}`} className="text-xs text-stone-400 hover:text-stone-600 shrink-0">
           Lihat Profil
         </Link>
       </div>
@@ -149,32 +125,19 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
       {/* Pesan */}
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-2">
         {messages.length === 0 && (
-          <p className="text-center text-stone-400 text-sm mt-8">
-            Belum ada pesan. Mulai percakapan!
-          </p>
+          <p className="text-center text-stone-400 text-sm mt-8">Belum ada pesan. Mulai percakapan!</p>
         )}
         {messages.map((msg) => {
           const isMine = msg.sender_id === currentUser.id
           return (
             <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <div
-                className={`max-w-xs sm:max-w-sm px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                  isMine
-                    ? 'bg-stone-900 text-white rounded-br-sm'
-                    : 'bg-stone-100 text-stone-800 rounded-bl-sm'
-                }`}
-              >
+              <div className={`max-w-xs sm:max-w-sm px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                isMine ? 'bg-stone-900 text-white rounded-br-sm' : 'bg-stone-100 text-stone-800 rounded-bl-sm'
+              }`}>
                 {msg.content}
-                <p className="text-xs mt-1 opacity-60 flex items-center gap-1 justify-end">
-                  {new Date(msg.created_at).toLocaleTimeString('id-ID', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                  {isMine && (
-                    <span title={msg.is_read ? 'Sudah dibaca' : 'Terkirim'}>
-                      {msg.is_read ? '✓✓' : '✓'}
-                    </span>
-                  )}
+                <p className="text-xs mt-1 opacity-50 text-right">
+                  {new Date(msg.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                  {isMine && <span className="ml-1">{msg.is_read ? '✓✓' : '✓'}</span>}
                 </p>
               </div>
             </div>
@@ -183,11 +146,15 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         <div ref={bottomRef} />
       </div>
 
+      {error && (
+        <div className="mx-4 mb-2 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-xs rounded-lg">{error}</div>
+      )}
+
       {/* Input */}
       <div className="px-4 py-3 border-t border-stone-100 flex gap-2 items-end">
         <textarea
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ketik pesan... (Enter untuk kirim)"
           rows={1}
@@ -196,7 +163,7 @@ export default function ChatWindow({ jobId, jobTitle, currentUser, otherUser }) 
         />
         <button
           onClick={handleSend}
-          disabled={!text.trim() || sending || !convId}
+          disabled={!text.trim() || sending}
           className="px-4 py-2 bg-stone-900 text-white text-sm font-bold rounded-xl hover:bg-stone-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shrink-0"
         >
           {sending ? '...' : 'Kirim'}
