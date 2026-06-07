@@ -142,17 +142,33 @@ export default function DashboardPage() {
         [jobId]: prev[jobId].map(a => a.id === appId ? { ...a, status } : a),
       }))
 
-      // Saat diterima: otomatis buat escrow (jika belum ada)
       if (status === 'accepted') {
         const job = myJobs.find(j => j.id === jobId)
-        await fetch('/api/escrow/create', {
+        const res = await fetch('/api/escrow/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ application_id: appId, amount: job?.budget ?? 0 }),
         })
-        // Reload agar EscrowPanel langsung muncul
-        if (user) reloadApplicants(user.id)
+        const resData = await res.json()
+        console.log('[escrow/create] status:', res.status, 'body:', resData)
+
+        if (res.ok) {
+          // Inject escrow langsung ke state tanpa reload — hindari race condition
+          const escrowData = resData.escrow
+          setApplicantsMap(prev => ({
+            ...prev,
+            [jobId]: prev[jobId].map(a =>
+              a.id === appId
+                ? { ...a, status: 'accepted', escrow_transactions: escrowData ? [escrowData] : [] }
+                : a
+            ),
+          }))
+        } else {
+          console.error('[escrow/create] gagal:', resData)
+        }
       }
+    } else {
+      console.error('[handleUpdateStatus] supabase error:', error)
     }
   }
 
