@@ -270,7 +270,6 @@ export default function JobDetailPage() {
       </div>
     </div>
       </div>
-    </div>
   )
 }
 
