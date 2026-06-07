@@ -57,12 +57,11 @@ export default function DashboardPage() {
         const jobIds = jobs.map(j => j.id)
         const { data: allApps, error: appsError } = await supabase
           .from('applications')
-          .select('*, talent:talent_id(id, nama, foto_url, bio, skills), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
+          .select('*, talent:talent_id(id, nama, foto_url, bio, skills), escrow_transactions!fk_escrow_application(id, status, amount, payment_ref, note, funded_at, released_at)')
           .in('job_id', jobIds)
           .order('created_at', { ascending: false })
 
         if (appsError) console.error('Error fetch applicants:', appsError)
-        if (allApps?.[0]) console.log('[debug] sample app escrow:', allApps[0].escrow_transactions)
 
         const map = {}
         for (const app of allApps ?? []) {
@@ -78,7 +77,7 @@ export default function DashboardPage() {
       // Fetch lamaran yang dikirim sebagai talent
       const { data: apps } = await supabase
         .from('applications')
-        .select('*, jobs(id, judul, lokasi, kategori, user_id, budget), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
+        .select('*, jobs(id, judul, lokasi, kategori, user_id, budget), escrow_transactions!fk_escrow_application(id, status, amount, payment_ref, note, funded_at, released_at)')
         .eq('talent_id', session.user.id)
         .order('created_at', { ascending: false })
       setMyApplications(apps ?? [])
