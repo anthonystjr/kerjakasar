@@ -62,6 +62,7 @@ export default function DashboardPage() {
           .order('created_at', { ascending: false })
 
         if (appsError) console.error('Error fetch applicants:', appsError)
+        if (allApps?.[0]) console.log('[debug] sample app escrow:', allApps[0].escrow_transactions)
 
         const map = {}
         for (const app of allApps ?? []) {
@@ -95,35 +96,6 @@ export default function DashboardPage() {
     window.location.href = '/login'
   }
 
-  // Reload data aplikasi (dipanggil ulang setelah escrow update)
-  const reloadApplicants = async (userId) => {
-    const { data: jobs } = await supabase
-      .from('jobs')
-      .select('*, applications(count)')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-    if (jobs?.length) {
-      const jobIds = jobs.map(j => j.id)
-      const { data: allApps } = await supabase
-        .from('applications')
-        .select('*, talent:talent_id(id, nama, foto_url, bio, skills), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
-        .in('job_id', jobIds)
-        .order('created_at', { ascending: false })
-      const map = {}
-      for (const app of allApps ?? []) {
-        if (!map[app.job_id]) map[app.job_id] = []
-        map[app.job_id].push(app)
-      }
-      setApplicantsMap(map)
-    }
-    // Reload talent side juga
-    const { data: myApps } = await supabase
-      .from('applications')
-      .select('*, jobs(id, judul, lokasi, kategori, user_id, budget), escrow_transactions(id, status, amount, payment_ref, note, funded_at, released_at)')
-      .eq('talent_id', userId)
-      .order('created_at', { ascending: false })
-    setMyApplications(myApps ?? [])
-  }
 
   const handleCloseJob = async (jobId) => {
     await supabase.from('jobs').update({ status: 'closed' }).eq('id', jobId)
@@ -136,40 +108,63 @@ export default function DashboardPage() {
       .update({ status })
       .eq('id', appId)
 
-    if (!error) {
+    if (error) { console.error('[updateStatus]', error); return }
+
+    if (status === 'accepted') {
+      // 1. Update status dulu di state
+      setApplicantsMap(prev => ({
+        ...prev,
+        [jobId]: prev[jobId].map(a => a.id === appId ? { ...a, status: 'accepted' } : a),
+      }))
+
+      // 2. Buat escrow
+      const job = myJobs.find(j => j.id === jobId)
+      const res = await fetch('/api/escrow/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ application_id: appId, amount: job?.budget ?? 0 }),
+      })
+      const resData = await res.json()
+
+      // 3. Inject escrow ke state langsung — tidak perlu reload dari DB
+      setApplicantsMap(prev => ({
+        ...prev,
+        [jobId]: prev[jobId].map(a =>
+          a.id === appId
+            ? { ...a, status: 'accepted', escrow_transactions: resData.escrow ? [resData.escrow] : [] }
+            : a
+        ),
+      }))
+    } else {
+      // rejected / status lain
       setApplicantsMap(prev => ({
         ...prev,
         [jobId]: prev[jobId].map(a => a.id === appId ? { ...a, status } : a),
       }))
-
-      if (status === 'accepted') {
-        const job = myJobs.find(j => j.id === jobId)
-        const res = await fetch('/api/escrow/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ application_id: appId, amount: job?.budget ?? 0 }),
-        })
-        const resData = await res.json()
-        console.log('[escrow/create] status:', res.status, 'body:', resData)
-
-        if (res.ok) {
-          // Inject escrow langsung ke state tanpa reload — hindari race condition
-          const escrowData = resData.escrow
-          setApplicantsMap(prev => ({
-            ...prev,
-            [jobId]: prev[jobId].map(a =>
-              a.id === appId
-                ? { ...a, status: 'accepted', escrow_transactions: escrowData ? [escrowData] : [] }
-                : a
-            ),
-          }))
-        } else {
-          console.error('[escrow/create] gagal:', resData)
-        }
-      }
-    } else {
-      console.error('[handleUpdateStatus] supabase error:', error)
     }
+  }
+
+  // Update escrow di state setelah aksi dari EscrowPanel (tanpa reload DB)
+  const handleEscrowUpdate = async (jobId, appId) => {
+    const { data: escrow } = await supabase
+      .from('escrow_transactions')
+      .select('id, status, amount, payment_ref, note, funded_at, released_at')
+      .eq('application_id', appId)
+      .maybeSingle()
+
+    setApplicantsMap(prev => ({
+      ...prev,
+      [jobId]: (prev[jobId] ?? []).map(a =>
+        a.id === appId
+          ? { ...a, escrow_transactions: escrow ? [escrow] : [] }
+          : a
+      ),
+    }))
+
+    // Update sisi talent juga
+    setMyApplications(prev => prev.map(a =>
+      a.id === appId ? { ...a, escrow_transactions: escrow ? [escrow] : [] } : a
+    ))
   }
 
   // Fix: ambil foto & nama dari profile (tabel users), fallback ke Google metadata
@@ -401,7 +396,7 @@ export default function DashboardPage() {
                                     applicationId={app.id}
                                     jobBudget={myJobs.find(j => j.id === job.id)?.budget ?? 0}
                                     isClient={true}
-                                    onUpdate={() => reloadApplicants(user.id)}
+                                    onUpdate={() => handleEscrowUpdate(job.id, app.id)}
                                   />
                                 )}
 
@@ -473,7 +468,7 @@ export default function DashboardPage() {
                         applicationId={app.id}
                         jobBudget={app.jobs?.budget ?? 0}
                         isClient={false}
-                        onUpdate={() => reloadApplicants(user.id)}
+                        onUpdate={() => handleEscrowUpdate(app.job_id, app.id)}
                       />
                     )}
                   </div>
